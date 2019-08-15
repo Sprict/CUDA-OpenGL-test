@@ -1,5 +1,9 @@
-// #include <GLUT/glut.h>
-#include <GL/freeglut.h>
+/*
+ポリゴンの描画
+*/
+
+#include <GLUT/glut.h>
+// #include <GL/freeglut.h>
 #include <math.h>
 //#include "stdafx.h" Visual Studio 独自の定義
 
@@ -30,10 +34,25 @@ double init_top = 2.0;
 
 double left, right, bottom, top;
 
-double eye[3] = {2.0, 1.0, 1.0};
+double eye[3];
 double center[3] = {0.0, 0.0, 0.0};
-double up[3] = {0.0, 0.0, 1.0};
+double up[3];
 
+// 円周率
+#define PI 3.141592653589793
+
+double phi = 30.0;
+double theta = 30.0;
+
+//マウス処理
+int mouse_old_x, mouse_old_y;
+bool motion_p;
+
+// 隠面消去
+unsigned int num_quads = 6;
+unsigned int quad[][4] = {{3, 2, 1, 0}, {0, 1, 5, 4}, {1, 2, 6, 5}, {2, 3, 7, 6}, {3, 0, 4, 7}, {4, 5, 6, 7}};
+unsigned int num_triangles = 12;
+unsigned int triangle[][3] = {{3, 2, 1}, {1, 0, 3}, {0, 1, 5}, {5, 4, 0}, {1, 2, 6}, {6, 5, 1}, {2, 3, 7}, {7, 6, 2}, {3, 0, 4}, {4, 7, 3}, {4, 5, 6}, {6, 7, 4}};
 // 2本のベクトルvec0とvec1の内積
 double dot(double vec0[], double vec1[])
 {
@@ -56,6 +75,122 @@ void normalVec(double vec[])
 	vec[X] /= norm;
 	vec[Y] /= norm;
 	vec[Z] /= norm;
+}
+
+// マウスのボタン処理
+void mouse_button(int button, int state, int x, int y)
+{
+	if ((state == GLUT_DOWN) && (button == GLUT_LEFT_BUTTON))
+		motion_p = true;
+	else if (state == GLUT_UP)
+		motion_p = false;
+	mouse_old_x = x;
+	mouse_old_y = y;
+}
+
+// マウスの移動処理
+void mouse_motion(int x, int y)
+{
+	int dx, dy;
+	dx = x - mouse_old_x;
+	dy = y - mouse_old_y;
+	if (motion_p)
+	{
+		phi -= dx * 0.2;
+		theta += dy * 0.2;
+	}
+	mouse_old_x = x;
+	mouse_old_y = y;
+	glutPostRedisplay();
+}
+// 投影撮影用の行列定義，モデルを画面いっぱいに表示する
+void defineViewMatrix(double phi, double theta)
+{
+	unsigned int i, j;
+	double c, s, xy_dist;
+	double x_axis[3], y_axis[3], z_axis[3], vec[3];
+	double left, right, bottom, top, farVal, nearVal, margin;
+	double dx, dy, d_aspect, w_aspect, d;
+
+	// 視点の設定
+	eye[Z] = sin(theta * PI / 180);
+	xy_dist = cos(theta * PI / 180);
+	c = cos(phi * PI / 180);
+	s = sin(phi * PI / 180);
+	eye[X] = xy_dist * c;
+	eye[Y] = xy_dist * s;
+	up[X] = -c * eye[Z];
+	up[Y] = -s * eye[Z];
+	up[Z] = s * eye[Y] + c * eye[X];
+	normalVec(up);
+
+	// 視点を原点とする座標系の定義
+	for (i = 0; i < 3; i++)
+		z_axis[i] = eye[i] - center[i];
+	normalVec(z_axis);
+	cross(up, z_axis, x_axis);
+	normalVec(x_axis); //　これいる？
+	cross(z_axis, x_axis, y_axis);
+
+	// left, right, bottom, top, nearVal, farValの決定
+	left = bottom = farVal = 10000.0;
+	right = top = nearVal = -10000.0;
+	for (i = 0; i < num_points; i++)
+	{
+		for (j = 0; j < 3; j++)
+			vec[j] = point[i][j] - eye[j];
+		if (dot(x_axis, vec) < left)
+			left = dot(x_axis, vec);
+		if (dot(x_axis, vec) > right)
+			right = dot(x_axis, vec);
+		if (dot(y_axis, vec) < bottom)
+			bottom = dot(y_axis, vec);
+		if (dot(y_axis, vec) > top)
+			top = dot(y_axis, vec);
+		if (dot(z_axis, vec) < farVal)
+			farVal = dot(z_axis, vec);
+		if (dot(z_axis, vec) > nearVal)
+			nearVal = dot(z_axis, vec);
+	}
+
+	//　図形の周辺に5％ほど余裕を与える
+	margin = (right - left) * 0.05;
+	left -= margin;
+	right += margin;
+	margin = (top - bottom) * 0.05;
+	bottom -= margin;
+	top += margin;
+	margin = (nearVal - farVal) * 0.05;
+	farVal -= margin;
+	nearVal += margin;
+
+	// 表示範囲のアスペクト比とウィンドウのアスペクト比の比較
+	dx = right - left;
+	dy = top - bottom;
+	d_aspect = dy / dx;
+	w_aspect = (double)window_height / (double)window_width;
+
+	//　ウィンドウが表示範囲よりも縦長，表示範囲を広げる
+	if (w_aspect > d_aspect)
+	{
+		d = (dy * (w_aspect / d_aspect - 1.0)) * 0.5;
+		bottom -= d;
+		top += d;
+
+		// ウィンドウが表示範囲よりも横長，表示班にを横に広げる．
+	}
+	else
+	{
+		d = (dx * (d_aspect / w_aspect - 1.0)) * 0.5;
+		left -= d;
+		right += d;
+	}
+	// OpenGL内部の行列データ記録用のメモリを投影のために用いる宣言
+	glMatrixMode(GL_PROJECTION);
+	// 処理前にメモリを単位行列に初期化
+	glLoadIdentity();
+	// ビューポートのサイズ指定
+	glOrtho(left, right, bottom, top, -nearVal, -farVal);
 }
 
 void resize(int width, int height)
@@ -116,21 +251,17 @@ void resize(int width, int height)
 		bottom = init_bottom;
 		top = init_top;
 	}
+	////////////////////////////////////////
 }
 
 // ウィンドウへの描画関数
 void display(void)
 {
 	unsigned int i;
-	// 正投影
-	{
-		// OpenGL内部の行列データ記録用のメモリを投影のために用いる宣言
-		glMatrixMode(GL_PROJECTION);
-		// 処理前にメモリを単位行列に初期化
-		glLoadIdentity();
-		// ビューポートのサイズ指定
-		glOrtho(left, right, bottom, top, -100.0, 100.0);
-	}
+	unsigned int r, g, b;
+	// 正投影の定義
+	defineViewMatrix(phi, theta);
+
 	// 視点移動
 	{
 		glMatrixMode(GL_MODELVIEW);
@@ -143,44 +274,18 @@ void display(void)
 	glViewport(0, 0, window_width, window_height);
 	// ウィンドウを背景色で染める
 	glClear(GL_COLOR_BUFFER_BIT);
-	glBegin(GL_LINES);
-
-	glVertex3dv(point[0]);
-	glVertex3dv(point[1]);
-
-	glVertex3dv(point[1]);
-	glVertex3dv(point[2]);
-
-	glVertex3dv(point[2]);
-	glVertex3dv(point[3]);
-
-	glVertex3dv(point[3]);
-	glVertex3dv(point[0]);
-
-	glVertex3dv(point[4]);
-	glVertex3dv(point[5]);
-
-	glVertex3dv(point[5]);
-	glVertex3dv(point[6]);
-
-	glVertex3dv(point[6]);
-	glVertex3dv(point[7]);
-
-	glVertex3dv(point[7]);
-	glVertex3dv(point[4]);
-
-	glVertex3dv(point[0]);
-	glVertex3dv(point[4]);
-
-	glVertex3dv(point[1]);
-	glVertex3dv(point[5]);
-
-	glVertex3dv(point[2]);
-	glVertex3dv(point[6]);
-
-	glVertex3dv(point[3]);
-	glVertex3dv(point[7]);
-
+	glBegin(GL_QUADS);
+	for (i = 0; i < num_quads; i++)
+	{
+		r = (i + 1) / 4;
+		g = ((i + 1) % 4) / 2;
+		b = ((i + 1) % 4) % 2;
+		glColor3f(1.0f * r, 1.0f * g, 1.0f * b);
+		glVertex3dv(point[quad[i][0]]);
+		glVertex3dv(point[quad[i][1]]);
+		glVertex3dv(point[quad[i][2]]);
+		glVertex3dv(point[quad[i][3]]);
+	}
 	// glClear関数を確実に実行させるための「おまじない」
 	glEnd();
 	glFlush();
@@ -206,6 +311,10 @@ int main(int argc, char *argv[])
 	glutDisplayFunc(display);
 	// ウィンドウの生成時やサイズの変更のイベントのたびにresize関数が呼ばれる
 	glutReshapeFunc(resize);
+
+	glutMouseFunc(mouse_button);
+	glutMotionFunc(mouse_motion);
+
 	// 自分で定義した関数の呼び出し
 	initGL();
 	// メインループ開始

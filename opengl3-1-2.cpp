@@ -30,12 +30,19 @@ double init_top = 2.0;
 
 double left, right, bottom, top;
 
-double eye[3] = {2.0, 1.0, 1.0};
+double eye[3];
 double center[3] = {0.0, 0.0, 0.0};
-double up[3] = {0.0, 0.0, 1.0};
+double up[3];
 
 // 円周率
 #define PI 3.141592653589793
+
+double phi = 30.0;
+double theta = 30.0;
+
+//マウス処理
+int mouse_old_x, mouse_old_y;
+bool motion_p;
 
 // 2本のベクトルvec0とvec1の内積
 double dot(double vec0[], double vec1[])
@@ -61,6 +68,32 @@ void normalVec(double vec[])
 	vec[Z] /= norm;
 }
 
+// マウスのボタン処理
+void mouse_button(int button, int state, int x, int y)
+{
+	if ((state == GLUT_DOWN) && (button == GLUT_LEFT_BUTTON))
+		motion_p = true;
+	else if (state == GLUT_UP)
+		motion_p = false;
+	mouse_old_x = x;
+	mouse_old_y = y;
+}
+
+// マウスの移動処理
+void mouse_motion(int x, int y)
+{
+	int dx, dy;
+	dx = x - mouse_old_x;
+	dy = y - mouse_old_y;
+	if (motion_p)
+	{
+		phi -= dx * 0.2;
+		theta += dy * 0.2;
+	}
+	mouse_old_x = x;
+	mouse_old_y = y;
+	glutPostRedisplay();
+}
 // 投影撮影用の行列定義，モデルを画面いっぱいに表示する
 void defineViewMatrix(double phi, double theta)
 {
@@ -77,10 +110,14 @@ void defineViewMatrix(double phi, double theta)
 	s = sin(phi * PI / 180);
 	eye[X] = xy_dist * c;
 	eye[Y] = xy_dist * s;
-	up[X]
-			// 視点を原点とする座標系の定義
-			for (i = 0; i < 3; i++)
-					z_axis[i] = eye[i] - center[i];
+	up[X] = -c * eye[Z];
+	up[Y] = -s * eye[Z];
+	up[Z] = s * eye[Y] + c * eye[X];
+	normalVec(up);
+
+	// 視点を原点とする座標系の定義
+	for (i = 0; i < 3; i++)
+		z_axis[i] = eye[i] - center[i];
 	normalVec(z_axis);
 	cross(up, z_axis, x_axis);
 	normalVec(x_axis); //　これいる？
@@ -212,7 +249,7 @@ void resize(int width, int height)
 void display(void)
 {
 	// 正投影の定義
-	defineViewMatrix();
+	defineViewMatrix(phi, theta);
 
 	// 視点移動
 	{
@@ -289,6 +326,10 @@ int main(int argc, char *argv[])
 	glutDisplayFunc(display);
 	// ウィンドウの生成時やサイズの変更のイベントのたびにresize関数が呼ばれる
 	glutReshapeFunc(resize);
+
+	glutMouseFunc(mouse_button);
+	glutMotionFunc(mouse_motion);
+
 	// 自分で定義した関数の呼び出し
 	initGL();
 	// メインループ開始
