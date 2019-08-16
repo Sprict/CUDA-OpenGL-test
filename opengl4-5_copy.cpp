@@ -1,7 +1,18 @@
+/*
+画像の取得と利用
+現時点で得られているのは単なる「絵」であって，このままでは利用することができない．そこでこのボロノイ図の画像データを取得して，これを別な用途に利用することを考える．ここではマウスで指定した点に最も近い母点を検索する処理を考えよう．ボロノイ領域を母点ごとに色分けした画像が得られているので，マウスで画像をクリックした時のマウス位置を取得し，その位置に対応するピクセルの色を得ることができれば，色データをcolorToID()関数に与えることで，そのボロノイ領域の母点のID番号を得ることができる．そこでまず画像の色データを取得することを考える．
+　OpenGLにはglReadPixels()関数が用意されており，これを用いるとウィンドウ内の任意の短距離領域の色データやデプスバッファをメモリに取り込むことができる．
+　引数x,yには，取得したい短形領域の左下角の位置を与えるl．ウィンドウの，短形領域の左下すみの位置をピクセル数で表した座標値をxとyにセットする．次のwidthとheightには，取得したい短形領域の幅と高さをやはりピクセル数で与える．画像全体の色データなどを取得したい場合には，x = y = 0, width = window_width, height = window_heightとなる．formatには色々なデータを支持できるが，画像の色データを取得する婆には，GL_RGBAに与えることが一般的である．もし画像のデプスデータを得たい場合には，，ここがGL_DEPTH_COMPONENTに変わるにはGL_FLOATを支持する．最後のdataには，取得したデータを格納するメモリ領域（例えば配列）のポインタを与える．
+*/
 #include <GLUT/glut.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
+
+
+// 円周率
+#define PI 3.141592653589793
 
 // ウィンドウの初期位置と初期サイズ
 #define INIT_X_POS 128
@@ -23,6 +34,15 @@ double left, right, bottom, top;
 #define MAX_NUM_POINTS 10000
 double point[MAX_NUM_POINTS][2];
 unsigned int num_points;
+
+// 画像の最大サイズ，画像の最大ピクセル数を2048x1024と家庭
+#define MAX_WIDTH 2048
+#define MAX_HEIGHT 1024
+
+// 画像データ
+GLubyte color_data[MAX_WIDTH * MAX_HEIGHT][4];
+//検出された母点
+int detected_point_index = -1;
 
 // ボロノイ母点の生成
 // [0, window_width]×[0, window_height]の範囲内にランダムにnum個の点を生成し，これ母点とする
@@ -61,14 +81,25 @@ void displayPoints(void)
 	glPointSize(4.0f);
 	glBegin(GL_POINTS);
 	for(i = 0; i < num_points; i++) {
-		glColor3d(1.0, 0.0, 0.0);
+		if(i == detected_point_index)
+			glColor3d(1.0, 1.0, 0.0); //検出点のみ色を変える
+		else
+			glColor3d(1.0, 0.0, 0.0);
 		glVertex3d(point[i][X], point[i][Y], 0.0);
 	}
 	glEnd();
 }
 
-// 円周率
-#define PI 3.141592653589793
+void wavePoints(void)
+{
+	time_t t = time(NULL);
+	struct tm *mytm = localtime(&t);
+	for(int i = 0; i < num_points; i++) {
+		double mytime = mytm->tm_sec * i * PI / 3600;
+		point[i][X] += 3.1 * cos(mytime);
+		point[i][Y] += 3.5 * sin(mytime);
+	}
+}
 
 // ボロノイ母点下に配置された円錐形の描画
 void displayCone(double peak_point[])
@@ -134,6 +165,7 @@ void displayCones(void)
 // 表示モード
 #define DISPLAY_POINTS 0
 #define DISPLAY_CONES 1
+#define DISPLAY_AUTO 2
 unsigned int display_mode = DISPLAY_POINTS;
 
 // 表示
@@ -150,7 +182,12 @@ void display(void)
 			break;
 		case DISPLAY_CONES:
 			displayCones();
-			displayPoints();
+			glReadPixels(0, 0, window_width, window_height, GL_RGBA, GL_UNSIGNED_BYTE, color_data);
+			// displayPoints();
+			break;
+		case DISPLAY_AUTO:
+			wavePoints();
+			displayCones();
 			break;
 		default:
 			break;
@@ -181,11 +218,36 @@ void keyboard(unsigned char key, int x, int y)
 			display_mode = DISPLAY_CONES;
 			glutPostRedisplay();
 			break;
+		case 'a':
+		case 'A':
+			display_mode = DISPLAY_AUTO;
+			glutPostRedisplay();
+			break;
 		default:
 			break;
 	}
 }
 
+//マウスのボタン操作
+void mouse_button(int button, int state, int x, int y)
+{
+	unsigned int shift, index;
+	switch(button) {
+		//マウスの左ボタンを押すと最寄の点を取得
+		case GLUT_LEFT_BUTTON:
+			if(state == GLUT_DOWN) {
+				shift = window_width * (window_height - y) + x;
+				index = colorToID(color_data[shift][0], color_data[shift][1], color_data[shift][2]);
+				if(index < num_points){
+					detected_point_index = index;
+					printf("Nearest point: %d\n", detected_point_index);
+				}
+				glutPostRedisplay();
+				break;
+			}
+		default:	break;
+	}
+}
 // ウィンドウサイズの変更
 void resize(int width, int height)
 {
@@ -219,6 +281,7 @@ int main(int argc, char *argv[])
 	glutDisplayFunc(display);
 	glutKeyboardFunc(keyboard);
 	glutReshapeFunc(resize);
+	glutMouseFunc(mouse_button);
 	initGL();
 	glutMainLoop();
 	return 0;
